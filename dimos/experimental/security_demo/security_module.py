@@ -156,7 +156,8 @@ class SecurityModule(Module):
         self._router: PatrolRouter = _create_router(self.config.g)
         self._visual_servo = _create_visual_servo(self.config, self.config.g)
         self._detector = YoloPersonDetector()
-        self._tracker = EdgeTAMProcessor()
+        self._tracker: EdgeTAMProcessor | None = None
+        self._tracker_unavailable: str | None = None
 
         self._depth_estimator = DepthEstimator(self.depth_image.publish)
 
@@ -185,7 +186,9 @@ class SecurityModule(Module):
         self._stop_security_patrol_internal()
         self._depth_estimator.stop()
         self._detector.stop()
-        self._tracker.stop()
+        if self._tracker is not None:
+            self._tracker.stop()
+            self._tracker = None
         super().stop()
 
     @skill
@@ -310,7 +313,11 @@ class SecurityModule(Module):
 
         # Init EdgeTAM with YOLO bbox for continuous tracking
         box = np.array(list(best.bbox), dtype=np.float32)
-        self._tracker.init_track(image=image, box=box, obj_id=1)
+        tracker = self._ensure_tracker()
+        if tracker is None:
+            self._stop_event.wait(timeout=2.0)
+            return
+        tracker.init_track(image=image, box=box, obj_id=1)
 
         self._cancel_current_goal()
         self._has_active_goal = False
@@ -326,7 +333,14 @@ class SecurityModule(Module):
             self._stop_event.wait(timeout=_ANTI_BUSY_LOOP_TIMEOUT)
             return
 
-        detections = self._tracker.process_image(latest_image)
+        tracker = self._ensure_tracker()
+        if tracker is None:
+            self.cmd_vel.publish(Twist.zero())
+            self._router.reset()
+            self._has_active_goal = False
+            self._transition_to("PATROLLING")
+            return
+        detections = tracker.process_image(latest_image)
 
         if len(detections) == 0:
             self.cmd_vel.publish(Twist.zero())
@@ -400,3 +414,16 @@ class SecurityModule(Module):
             thread.join(timeout=DEFAULT_THREAD_JOIN_TIMEOUT)
             with self._lock:
                 self._main_thread = None
+
+    def _ensure_tracker(self) -> EdgeTAMProcessor | None:
+        with self._lock:
+            if self._tracker_unavailable is not None:
+                return None
+            if self._tracker is None:
+                try:
+                    self._tracker = EdgeTAMProcessor()
+                except RuntimeError as exc:
+                    self._tracker_unavailable = str(exc)
+                    logger.warning("EdgeTAM tracking disabled", error=str(exc))
+                    return None
+            return self._tracker

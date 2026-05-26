@@ -16,11 +16,12 @@
 
 
 from pathlib import Path
+import shutil
+import subprocess
 import xml.etree.ElementTree as ET
 
 from etils import epath
 import mujoco
-from mujoco_playground._src import mjx_env
 import numpy as np
 
 from dimos.core.global_config import GlobalConfig
@@ -30,27 +31,83 @@ from dimos.simulation.mujoco.input_controller import InputController
 from dimos.simulation.mujoco.policy import G1OnnxController, Go1OnnxController, OnnxController
 from dimos.utils.data import get_data
 
+_MENAGERIE_COMMIT_SHA = "1b86ece576591213e2b666ebf59508454200ca97"
+
 
 def _get_data_dir() -> epath.Path:
     return epath.Path(str(get_data("mujoco_sim")))
 
 
+def _get_menagerie_path() -> epath.Path:
+    return _get_data_dir() / "mujoco_menagerie"
+
+
+def _update_assets(
+    assets: dict[str, bytes],
+    path: str | epath.Path,
+    glob: str = "*",
+    recursive: bool = False,
+) -> None:
+    for f in epath.Path(path).glob(glob):
+        if f.is_file():
+            assets[f.name] = f.read_bytes()
+        elif f.is_dir() and recursive:
+            _update_assets(assets, f, glob, recursive)
+
+
+def ensure_menagerie_exists() -> None:
+    menagerie_path = Path(str(_get_menagerie_path()))
+    if (menagerie_path / "unitree_go1" / "assets").exists() and (
+        menagerie_path / "unitree_g1" / "assets"
+    ).exists():
+        return
+
+    tmp_path = menagerie_path.with_name(f"{menagerie_path.name}.tmp")
+    if tmp_path.exists():
+        shutil.rmtree(tmp_path)
+
+    subprocess.run(
+        [
+            "git",
+            "clone",
+            "--filter=blob:none",
+            "--sparse",
+            "https://github.com/google-deepmind/mujoco_menagerie.git",
+            str(tmp_path),
+        ],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "sparse-checkout", "set", "unitree_go1", "unitree_g1"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "checkout", _MENAGERIE_COMMIT_SHA],
+        check=True,
+    )
+
+    if menagerie_path.exists():
+        shutil.rmtree(menagerie_path)
+    shutil.move(str(tmp_path), str(menagerie_path))
+
+
 def get_assets() -> dict[str, bytes]:
     data_dir = _get_data_dir()
+    menagerie_path = _get_menagerie_path()
     assets: dict[str, bytes] = {}
 
     # Assets used from https://sketchfab.com/3d-models/mersus-office-8714be387bcd406898b2615f7dae3a47
     # Created by Ryan Cassidy and Coleman Costello
-    mjx_env.update_assets(assets, data_dir, "*.xml")
-    mjx_env.update_assets(assets, data_dir / "scene_office1/textures", "*.png")
-    mjx_env.update_assets(assets, data_dir / "scene_office1/office_split", "*.obj")
-    mjx_env.update_assets(assets, mjx_env.MENAGERIE_PATH / "unitree_go1" / "assets")
-    mjx_env.update_assets(assets, mjx_env.MENAGERIE_PATH / "unitree_g1" / "assets")
+    _update_assets(assets, data_dir, "*.xml")
+    _update_assets(assets, data_dir / "scene_office1/textures", "*.png")
+    _update_assets(assets, data_dir / "scene_office1/office_split", "*.obj")
+    _update_assets(assets, menagerie_path / "unitree_go1" / "assets")
+    _update_assets(assets, menagerie_path / "unitree_g1" / "assets")
 
     # From: https://sketchfab.com/3d-models/jeong-seun-34-42956ca979404a038b8e0d3e496160fd
     person_dir = epath.Path(str(get_data("person")))
-    mjx_env.update_assets(assets, person_dir, "*.obj")
-    mjx_env.update_assets(assets, person_dir, "*.png")
+    _update_assets(assets, person_dir, "*.obj")
+    _update_assets(assets, person_dir, "*.png")
 
     return assets
 
