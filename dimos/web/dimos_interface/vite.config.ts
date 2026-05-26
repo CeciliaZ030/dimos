@@ -23,6 +23,9 @@ export default defineConfig({
   server: {
     port: 3000,
     host: '0.0.0.0',
+    // Allow Tailscale Serve hostnames (and dev fallback) through Vite's
+    // host check. Without this, requests via *.ts.net get a blank 403.
+    allowedHosts: ['.ts.net', 'localhost', '127.0.0.1'],
     watch: {
       // Exclude node_modules, .git and other large directories
       ignored: ['**/node_modules/**', '**/.git/**', '**/dist/**', 'lambda/**'],

@@ -41,17 +41,29 @@ export function withTokenQuery(url: string): string {
 
 export type SubmitTag = 'user_speech' | 'user_reply' | 'user_command';
 
-/** POST `/submit_query` with a tagged user message. */
+/** POST `/submit_query` with a tagged user message. 10-second timeout so the
+ *  UI never hangs if the backend is unreachable. */
 export async function submitQuery(text: string, tag: SubmitTag = 'user_speech'): Promise<void> {
   const body = new FormData();
   body.append('query', `<${tag}>${text}</${tag}>`);
-  const res = await fetch(`${getServerUrl()}/submit_query`, {
-    method: 'POST',
-    headers: authHeaders(),
-    body,
-  });
-  if (!res.ok) {
-    throw new Error(`submit_query ${res.status}`);
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10_000);
+  try {
+    const res = await fetch(`${getServerUrl()}/submit_query`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body,
+      signal: ctrl.signal,
+    });
+    if (!res.ok) throw new Error(`submit_query ${res.status}`);
+  } catch (e: any) {
+    if (e?.name === 'AbortError') {
+      throw new Error('submit_query timeout (10s) — backend unreachable?');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
