@@ -19,8 +19,9 @@ import themes from '../../themes.json';
 import { get } from 'svelte/store';
 import { history } from '../stores/history';
 import { theme } from '../stores/theme';
-import { showStream, hideStream } from '../stores/stream';
+import { showStream, hideStream, connectTextStream } from '../stores/stream';
 import { simulationStore, type SimulationState } from '../utils/simulation';
+import { getServerUrl, withTokenQuery, submitQuery, submitStop } from '../lib/dimos';
 
 let bloop: string | null = null;
 const hostname = window.location.hostname;
@@ -41,7 +42,7 @@ type CommandResult = string | {
 // Function to fetch available text stream keys
 async function fetchTextStreamKeys(): Promise<string[]> {
   try {
-    const response = await fetch('/text_streams');
+    const response = await fetch(withTokenQuery(`${getServerUrl()}/text_streams`));
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -68,6 +69,47 @@ export const commands: Record<string, (args: string[]) => Promise<CommandResult>
   vi: () => `why use vi? try 'vim'`,
   emacs: () => `why use emacs? try 'vim'`,
   echo: (args: string[]) => args.join(' '),
+  ask: async (args: string[]): Promise<CommandResult> => {
+    const text = args.join(' ').trim();
+    if (!text) return 'Usage: ask <message to the robot>';
+    try {
+      await submitQuery(text, 'user_speech');
+      return {
+        type: 'STREAM_START',
+        streamKey: 'agent_responses',
+        initialMessage: `→ sent to agent: ${text}`,
+      };
+    } catch (e) {
+      return `ask: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  },
+  reply: async (args: string[]): Promise<CommandResult> => {
+    const text = args.join(' ').trim();
+    if (!text) return 'Usage: reply <answer to the robot\'s question>';
+    try {
+      await submitQuery(text, 'user_reply');
+      return `→ reply sent: ${text}`;
+    } catch (e) {
+      return `reply: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  },
+  stop: async (): Promise<CommandResult> => {
+    try {
+      await submitStop();
+      return 'stop signal sent';
+    } catch (e) {
+      return `stop: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  },
+  watch: (args: string[]): CommandResult => {
+    const key = args[0] || 'agent_state';
+    connectTextStream(key);
+    return {
+      type: 'STREAM_START',
+      streamKey: key,
+      initialMessage: `→ watching ${key}…`,
+    };
+  },
   sudo: (args: string[]) => {
     window.open('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
 

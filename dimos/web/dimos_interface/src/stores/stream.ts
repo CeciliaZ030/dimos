@@ -17,13 +17,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { simulationManager, simulationStore } from '../utils/simulation';
 import { history } from './history';
-
-// Get the server URL dynamically based on current location
-const getServerUrl = () => {
-  // In production, use the same host as the frontend but on port 5555
-  const hostname = window.location.hostname;
-  return `http://${hostname}:5555`;
-};
+import { getServerUrl, withTokenQuery } from '../lib/dimos';
 
 interface StreamState {
   isVisible: boolean;
@@ -72,7 +66,7 @@ export const combinedStreamState = derived(
 // Function to fetch available streams
 async function fetchAvailableStreams(): Promise<string[]> {
   try {
-    const response = await fetch(`${getServerUrl()}/streams`, {
+    const response = await fetch(withTokenQuery(`${getServerUrl()}/streams`), {
       headers: {
         'Accept': 'application/json'
       }
@@ -140,8 +134,11 @@ export const connectTextStream = (key: string): void => {
     delete textEventSources[key];
   }
 
-  // Create new EventSource
-  const eventSource = new EventSource(`${getServerUrl()}/text_stream/${key}`);
+  // Create new EventSource — token goes in the query because EventSource
+  // cannot set the Authorization header.
+  const eventSource = new EventSource(
+    withTokenQuery(`${getServerUrl()}/text_stream/${key}`)
+  );
   textEventSources[key] = eventSource;
   // Handle incoming messages
   eventSource.addEventListener('message', (event) => {
