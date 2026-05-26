@@ -210,8 +210,39 @@ class McpClient(Module):
 
     @rpc
     def on_system_modules(self, _modules: list[RPCClient]) -> None:
-        tools = self._fetch_tools()
+        # Quick initial attempt — if McpServer.on_system_modules already ran,
+        # this returns the registered tools and we're done.
+        tools = self._fetch_tools_safe(timeout=5.0, interval=0.5)
+        self._rebuild_agent(tools)
+        if not self._thread.is_alive():
+            self._thread.start()
 
+        # If the initial fetch came back empty, McpServer's on_system_modules
+        # hasn't populated app.state.skills yet (lifecycle race — both modules
+        # receive on_system_modules but the order is non-deterministic). Keep
+        # polling in the background until tools register, then atomically swap
+        # in a new state graph.
+        if not tools:
+            logger.warning(
+                "MCP tools empty after initial fetch — will retry in background"
+            )
+            retry_thread = Thread(
+                target=self._background_retry_tools,
+                name=f"{self.__class__.__name__}-tool-refetch",
+                daemon=True,
+            )
+            retry_thread.start()
+
+    def _fetch_tools_safe(
+        self, timeout: float = 5.0, interval: float = 0.5
+    ) -> list[StructuredTool]:
+        try:
+            return self._fetch_tools(timeout=timeout, interval=interval)
+        except Exception as e:
+            logger.warning("MCP tool fetch failed: %s", e)
+            return []
+
+    def _rebuild_agent(self, tools: list[StructuredTool]) -> None:
         model: str | Any = self.config.model
         if self.config.model_fixture is not None:
             from dimos.agents.testing import MockModel
@@ -224,8 +255,24 @@ class McpClient(Module):
                 tools=tools,
                 system_prompt=self.config.system_prompt,
             )
-            if not self._thread.is_alive():
-                self._thread.start()
+
+    def _background_retry_tools(self) -> None:
+        # Poll forever (capped) until tools register, then rebuild the agent.
+        deadline = time.monotonic() + 600.0  # 10 min ceiling
+        interval = 2.0
+        while not self._stop_event.is_set() and time.monotonic() < deadline:
+            time.sleep(interval)
+            tools = self._fetch_tools_safe(timeout=2.0, interval=0.5)
+            if tools:
+                self._rebuild_agent(tools)
+                logger.info(
+                    "Background MCP tool refetch succeeded.",
+                    n_tools=len(tools),
+                    tools=[t.name for t in tools],
+                )
+                return
+        if not self._stop_event.is_set():
+            logger.error("Background MCP tool refetch gave up after 10 minutes.")
 
     @rpc
     def stop(self) -> None:

@@ -353,13 +353,16 @@ class GO2Connection(Module, Camera, Pointcloud):
         return self.connection.publish_request(topic, data)
 
     @skill
-    def observe(self) -> Image | None:
+    def observe(self) -> Image | str:
         """Returns the latest video frame from the robot camera. Use this skill for any visual world queries.
 
         This skill provides the current camera view for perception tasks.
-        Returns None if no frame has been captured yet.
+        Returns a status string if no frame has been captured yet.
         """
-        return self._latest_video_frame
+        frame = self._latest_video_frame
+        if frame is None:
+            return "no camera frame available yet — try again in a moment"
+        return frame
 
 
 def deploy(dimos: ModuleCoordinator, ip: str, prefix: str = "") -> "ModuleProxy":
