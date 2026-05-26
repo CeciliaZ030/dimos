@@ -86,3 +86,23 @@ htmlcov/
 
 # Memory2 autorecord
 recording*.db
+
+# Frontend build / cache directories (root-level — sub-projects may have their own)
+.next/
+.svelte-kit/
+.nuxt/
+.turbo/
+.vercel/
+.vite/
+out/
+.cache/
+*.tsbuildinfo
+
+# Per-environment frontend envs (keep .env.example tracked)
+.env.local
+.env.development.local
+.env.production.local
+.env.test.local
+
+# Demo launcher runtime (bin/run-demo.sh writes here)
+/tmp/dimos_run/
