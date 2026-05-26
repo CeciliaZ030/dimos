@@ -43,7 +43,19 @@ class WebInput(Module):
 
         self._human_transport = pLCMTransport("/human_input")
 
-        audio_subject: rx.subject.Subject[AudioEvent] = rx.subject.Subject()
+        audio_subject: rx.subject.Subject[AudioEvent] | None = None
+
+        try:
+            # Here to prevent unwanted imports in the file.
+            from dimos.stream.audio.stt.node_whisper import WhisperNode
+
+            audio_subject = rx.subject.Subject()
+            normalizer = AudioNormalizer()
+            stt_node = WhisperNode()
+        except ImportError as exc:
+            normalizer = None
+            stt_node = None
+            logger.warning("Voice input disabled", error=str(exc))
 
         self._web_interface = RobotWebInterface(
             port=5555,
@@ -51,24 +63,15 @@ class WebInput(Module):
             audio_subject=audio_subject,
         )
 
-        normalizer = AudioNormalizer()
+        if audio_subject is not None and normalizer is not None and stt_node is not None:
+            # Connect audio pipeline: browser audio -> normalizer -> whisper
+            normalizer.consume_audio(audio_subject.pipe(ops.share()))
+            stt_node.consume_audio(normalizer.emit_audio())
+            unsub = stt_node.emit_text().subscribe(self._human_transport.publish)
+            self.register_disposable(unsub)
 
-        # Here to prevent unwanted imports in the file.
-        from dimos.stream.audio.stt.node_whisper import WhisperNode
-
-        stt_node = WhisperNode()
-
-        # Connect audio pipeline: browser audio → normalizer → whisper
-        normalizer.consume_audio(audio_subject.pipe(ops.share()))
-        stt_node.consume_audio(normalizer.emit_audio())
-
-        # Subscribe to both text input sources
-        # 1. Direct text from web interface
+        # Subscribe to direct text from web interface.
         unsub = self._web_interface.query_stream.subscribe(self._human_transport.publish)
-        self.register_disposable(unsub)
-
-        # 2. Transcribed text from STT
-        unsub = stt_node.emit_text().subscribe(self._human_transport.publish)
         self.register_disposable(unsub)
 
         self._thread = Thread(target=self._web_interface.run, daemon=True)

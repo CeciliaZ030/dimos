@@ -77,11 +77,11 @@ class MujocoConnection:
         # Pre-download the mujoco_sim data.
         get_data("mujoco_sim")
 
-        # Trigger the download of the mujoco_menagerie package. This is so it
-        # doesn't trigger in the mujoco process where it can time out.
-        from mujoco_playground._src import mjx_env
+        # Trigger the download of the robot assets. This is so it doesn't
+        # trigger in the MuJoCo process where it can time out.
+        from dimos.simulation.mujoco.model import ensure_menagerie_exists
 
-        mjx_env.ensure_menagerie_exists()
+        ensure_menagerie_exists()
 
         self.global_config = global_config
         self.process: subprocess.Popen[bytes] | None = None
@@ -126,6 +126,7 @@ class MujocoConnection:
 
             self.process = subprocess.Popen(
                 [executable, str(LAUNCHER_PATH), config_pickle, shm_names_json],
+                stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=env,
             )
@@ -141,8 +142,13 @@ class MujocoConnection:
         while time.time() - start_time < ready_timeout:
             if self.process.poll() is not None:
                 exit_code = self.process.returncode
+                stdout = self._read_process_pipe(self.process.stdout)
+                stderr = self._read_process_pipe(self.process.stderr)
                 self.stop()
-                raise RuntimeError(f"MuJoCo process failed to start (exit code {exit_code})")
+                output = self._format_process_output(stdout, stderr)
+                raise RuntimeError(
+                    f"MuJoCo process failed to start (exit code {exit_code}){output}"
+                )
             if self.shm_data.is_ready():
                 logger.info("MuJoCo process started successfully")
                 # Register atexit handler to ensure subprocess is cleaned up
@@ -224,6 +230,23 @@ class MujocoConnection:
         self.lidar_stream.cache_clear()
         self.odom_stream.cache_clear()
         self.video_stream.cache_clear()
+
+    @staticmethod
+    def _read_process_pipe(pipe: Any) -> str:
+        if pipe is None:
+            return ""
+        return pipe.read().decode("utf-8", errors="replace")
+
+    @staticmethod
+    def _format_process_output(stdout: str, stderr: str) -> str:
+        output = []
+        if stdout:
+            output.append(f"stdout:\n{stdout[-4000:]}")
+        if stderr:
+            output.append(f"stderr:\n{stderr[-4000:]}")
+        if not output:
+            return ""
+        return "\n" + "\n".join(output)
 
     def standup(self) -> bool:
         return True
