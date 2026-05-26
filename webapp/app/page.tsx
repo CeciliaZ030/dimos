@@ -20,10 +20,10 @@ export default function Page() {
   const [recording, setRecording] = useState(false);
   const [connected, setConnected] = useState(false);
   const [lastError, setLastError] = useState<string>("");
+  const [partialTranscript, setPartialTranscript] = useState<string>("");
 
-  const recRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  const recognitionRef = useRef<any>(null);
+  const finalTranscriptRef = useRef<string>("");
 
   useEffect(() => {
     if (!API) return;
@@ -59,53 +59,56 @@ export default function Page() {
 
   const startRecording = useCallback(async () => {
     setLastError("");
+    setPartialTranscript("");
+    finalTranscriptRef.current = "";
+
+    // Browser-side STT via Web Speech API (free, fast, runs on the phone).
+    // iOS Safari exposes it as webkitSpeechRecognition; Chrome/Edge also have it.
+    const SR: any =
+      (typeof window !== "undefined" && (window as any).SpeechRecognition) ||
+      (typeof window !== "undefined" && (window as any).webkitSpeechRecognition);
+
+    if (!SR) {
+      setLastError("speech recognition not supported in this browser");
+      return;
+    }
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
+      const rec = new SR();
+      rec.continuous = false;
+      rec.interimResults = true;
+      rec.lang = navigator.language || "en-US";
+      rec.maxAlternatives = 1;
 
-      // iOS Safari requires audio/mp4. Other browsers accept webm.
-      const candidates = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"];
-      const mimeType = candidates.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
-      const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-
-      chunksRef.current = [];
-      rec.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      rec.onstop = async () => {
-        streamRef.current?.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-        const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/mp4" });
-        if (blob.size < 1000) {
-          setLastError("recording too short");
-          return;
+      rec.onresult = (event: any) => {
+        let final = "";
+        let interim = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const r = event.results[i];
+          if (r.isFinal) final += r[0].transcript;
+          else interim += r[0].transcript;
         }
-        const ext = (rec.mimeType || "audio/mp4").includes("webm") ? "webm" : "mp4";
-        const fd = new FormData();
-        fd.append("file", blob, `rec.${ext}`);
-        try {
-          const r = await fetch(`${API}/upload_audio?token=${encodeURIComponent(TOKEN)}`, {
-            method: "POST",
-            body: fd,
-          });
-          if (!r.ok) {
-            setLastError(`upload_audio ${r.status}`);
-            return;
-          }
-          const data = await r.json();
-          const text = (data.text || data.transcript || "").trim();
-          if (text) {
-            const tag = state.awaiting_user ? "user_reply" : "user_speech";
-            await sendText(text, tag);
-          } else {
-            setLastError("empty transcript");
-          }
-        } catch (e) {
-          setLastError(String(e));
+        if (final) finalTranscriptRef.current += final;
+        setPartialTranscript(finalTranscriptRef.current + interim);
+      };
+
+      rec.onerror = (event: any) => {
+        setLastError(`stt: ${event.error || "unknown"}`);
+        setRecording(false);
+      };
+
+      rec.onend = () => {
+        setRecording(false);
+        const text = finalTranscriptRef.current.trim();
+        setPartialTranscript("");
+        if (text) {
+          const tag = state.awaiting_user ? "user_reply" : "user_speech";
+          sendText(text, tag);
         }
       };
+
       rec.start();
-      recRef.current = rec;
+      recognitionRef.current = rec;
       setRecording(true);
     } catch (e) {
       setLastError(`mic: ${String(e)}`);
@@ -113,15 +116,24 @@ export default function Page() {
   }, [sendText, state.awaiting_user]);
 
   const stopRecording = useCallback(() => {
-    if (recRef.current && recRef.current.state !== "inactive") {
-      recRef.current.stop();
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // already stopped
     }
-    setRecording(false);
   }, []);
 
   const stopButton = useCallback(() => {
     sendText("stop", "user_command");
   }, [sendText]);
+
+  const [textDraft, setTextDraft] = useState("");
+  const sendDraft = useCallback(() => {
+    if (!textDraft.trim()) return;
+    const tag = state.awaiting_user ? "user_reply" : "user_speech";
+    sendText(textDraft.trim(), tag);
+    setTextDraft("");
+  }, [textDraft, sendText, state.awaiting_user]);
 
   return (
     <main style={{ minHeight: "100vh", padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
@@ -175,7 +187,53 @@ export default function Page() {
         >
           Stop
         </button>
+
+        <div style={{ display: "flex", gap: 8, width: "100%", marginTop: 16 }}>
+          <input
+            type="text"
+            inputMode="text"
+            autoComplete="off"
+            autoCapitalize="off"
+            placeholder="Or type a query…"
+            value={textDraft}
+            onChange={(e) => setTextDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") sendDraft(); }}
+            style={{
+              flex: 1,
+              padding: "12px 14px",
+              borderRadius: 8,
+              border: "1px solid #374151",
+              background: "#111827",
+              color: "#e5e5e5",
+              fontSize: 16,
+              minWidth: 0,
+            }}
+          />
+          <button
+            onClick={sendDraft}
+            disabled={!textDraft.trim()}
+            style={{
+              padding: "12px 18px",
+              borderRadius: 8,
+              border: "1px solid #2563eb",
+              background: textDraft.trim() ? "#2563eb" : "#1e3a8a",
+              color: "white",
+              opacity: textDraft.trim() ? 1 : 0.6,
+            }}
+          >
+            Send
+          </button>
+        </div>
       </section>
+
+      {partialTranscript ? (
+        <section style={{ padding: 12, background: "#1f1f1f", borderRadius: 8, border: "1px solid #2563eb" }}>
+          <div style={{ fontSize: 11, color: "#60a5fa", textTransform: "uppercase", marginBottom: 4 }}>
+            Hearing
+          </div>
+          <div style={{ fontStyle: "italic" }}>{partialTranscript}</div>
+        </section>
+      ) : null}
 
       {state.awaiting_user ? (
         <section style={{ padding: 12, background: "#1f1f1f", borderRadius: 8, border: "1px solid #f59e0b" }}>
