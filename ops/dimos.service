@@ -1,0 +1,17 @@
+[Unit]
+Description=Dimos guide-robot agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/dimos
+EnvironmentFile=/opt/dimos/.env
+ExecStart=/opt/dimos/.venv/bin/dimos run unitree-go2-agentic
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

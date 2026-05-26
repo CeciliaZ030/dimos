@@ -15,6 +15,7 @@
 import asyncio
 from dataclasses import dataclass
 import functools
+import os
 import threading
 import time
 from typing import Any, TypeAlias, TypeVar
@@ -93,12 +94,45 @@ class SerializableVideoFrame:
 class UnitreeWebRTCConnection(Resource):
     _SPORT_API_ID_RAGEMODE: int = 2059
 
-    def __init__(self, ip: str, mode: str = "ai") -> None:
+    def __init__(
+        self,
+        ip: str | None = None,
+        mode: str = "ai",
+        connection_method: str | None = None,
+        serial_number: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
+    ) -> None:
         self.ip = ip
         self.mode = mode
         self.stop_timer: threading.Timer | None = None
         self.cmd_vel_timeout = 0.2
-        self.conn = LegionConnection(WebRTCConnectionMethod.LocalSTA, ip=self.ip)
+
+        # Env-var fallback so deployments can configure without code changes.
+        method = (connection_method or os.environ.get("GO2_CONNECTION_METHOD", "LocalSTA")).strip()
+
+        if method == "Remote":
+            sn = serial_number or os.environ.get("GO2_SERIAL_NUMBER")
+            user = username or os.environ.get("UNITREE_USERNAME")
+            pwd = password or os.environ.get("UNITREE_PASSWORD")
+            if not (sn and user and pwd):
+                raise ValueError(
+                    "Remote WebRTC mode requires GO2_SERIAL_NUMBER, UNITREE_USERNAME, "
+                    "UNITREE_PASSWORD (env or constructor args)."
+                )
+            self.conn = LegionConnection(
+                WebRTCConnectionMethod.Remote,
+                serialNumber=sn,
+                username=user,
+                password=pwd,
+            )
+        elif method == "LocalSTA":
+            self.conn = LegionConnection(WebRTCConnectionMethod.LocalSTA, ip=self.ip)
+        elif method == "LocalAP":
+            self.conn = LegionConnection(WebRTCConnectionMethod.LocalAP)
+        else:
+            raise ValueError(f"Unknown GO2_CONNECTION_METHOD: {method!r}")
+
         self.connect()
 
     def connect(self) -> None:

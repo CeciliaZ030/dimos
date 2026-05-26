@@ -29,14 +29,16 @@ import asyncio
 
 # For audio processing
 import io
+import os
 from pathlib import Path
 from queue import Empty, Queue
+import secrets
 import subprocess
 from threading import Lock
 import time
 
 import cv2
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
@@ -240,6 +242,22 @@ class FastAPIServer(EdgeIO):
     def setup_routes(self) -> None:
         """Set up FastAPI routes."""
 
+        expected_token = os.environ.get("DIMOS_API_TOKEN", "")
+
+        def require_token(
+            authorization: str | None = Header(default=None),
+            token: str | None = Query(default=None),
+        ) -> None:
+            if not expected_token:
+                return  # auth disabled when no token configured (local dev)
+            supplied = ""
+            if authorization and authorization.startswith("Bearer "):
+                supplied = authorization[len("Bearer ") :]
+            elif token:
+                supplied = token
+            if not secrets.compare_digest(supplied, expected_token):
+                raise HTTPException(status_code=401, detail="invalid token")
+
         @self.app.get("/streams")
         async def get_streams():  # type: ignore[no-untyped-def]
             """Get list of available video streams"""
@@ -266,7 +284,7 @@ class FastAPIServer(EdgeIO):
             )
 
         @self.app.post("/submit_query")
-        async def submit_query(query: str = Form(...)):  # type: ignore[no-untyped-def]
+        async def submit_query(query: str = Form(...), _: None = Depends(require_token)):  # type: ignore[no-untyped-def]
             # Using Form directly as a dependency ensures proper form handling
             try:
                 if query:
@@ -282,7 +300,7 @@ class FastAPIServer(EdgeIO):
                 )
 
         @self.app.post("/upload_audio")
-        async def upload_audio(file: UploadFile = File(...)):  # type: ignore[no-untyped-def]
+        async def upload_audio(file: UploadFile = File(...), _: None = Depends(require_token)):  # type: ignore[no-untyped-def]
             """Handle audio upload from the browser."""
             if self.audio_subject is None:
                 return JSONResponse(
@@ -321,7 +339,7 @@ class FastAPIServer(EdgeIO):
             return JSONResponse({"status": "online", "service": "unitree"})
 
         @self.app.post("/unitree/command")
-        async def unitree_command(request: Request):  # type: ignore[no-untyped-def]
+        async def unitree_command(request: Request, _: None = Depends(require_token)):  # type: ignore[no-untyped-def]
             """Process commands sent from the terminal frontend"""
             try:
                 data = await request.json()
@@ -345,7 +363,7 @@ class FastAPIServer(EdgeIO):
                 )
 
         @self.app.get("/text_stream/{key}")
-        async def text_stream(key: str):  # type: ignore[no-untyped-def]
+        async def text_stream(key: str, _: None = Depends(require_token)):  # type: ignore[no-untyped-def]
             if key not in self.text_streams:
                 raise HTTPException(status_code=404, detail=f"Text stream '{key}' not found")
             return EventSourceResponse(self.text_stream_generator(key))  # type: ignore[no-untyped-call]

@@ -1,0 +1,22 @@
+# Replace dog.yourname.dev with your actual hostname.
+# Replace https://your-app.vercel.app with your Vercel deployment URL.
+dog.yourname.dev {
+    @options method OPTIONS
+    handle @options {
+        header Access-Control-Allow-Origin "https://your-app.vercel.app"
+        header Access-Control-Allow-Headers "Authorization, Content-Type"
+        header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        header Access-Control-Max-Age "86400"
+        respond 204
+    }
+
+    header Access-Control-Allow-Origin "https://your-app.vercel.app"
+    header Access-Control-Allow-Credentials "true"
+
+    reverse_proxy localhost:5555 {
+        flush_interval -1
+        transport http {
+            read_timeout 0
+        }
+    }
+}
