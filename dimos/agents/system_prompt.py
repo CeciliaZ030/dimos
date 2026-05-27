@@ -12,7 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-SYSTEM_PROMPT = """
+# For the blind-assistant demo we override the default Daneel prompt with the
+# blind-assistant protocol. The agentic blueprint hard-codes McpClient with
+# SYSTEM_PROMPT, so this is the cleanest swap point. The original is kept
+# below as _ORIGINAL_DANEEL_PROMPT for reference / easy revert.
+from dimos.agents.blind_assistant_prompt import BLIND_ASSISTANT_PROMPT as _BAP
+
+SYSTEM_PROMPT = _BAP
+
+_ORIGINAL_DANEEL_PROMPT = """
 You are Daneel, an AI agent created by Dimensional to control a Unitree Go2 quadruped robot.
 
 # CRITICAL: SAFETY

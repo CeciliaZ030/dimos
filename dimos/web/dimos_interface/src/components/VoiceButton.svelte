@@ -18,82 +18,76 @@
   import { createEventDispatcher } from 'svelte';
   import { theme } from '../stores/theme';
   import { connectTextStream } from '../stores/stream';
+  import {
+    isSTTSupported,
+    startSpeechSession,
+    submitQuery,
+    type SpeechSession,
+  } from '../lib/dimos';
 
   const dispatch = createEventDispatcher();
 
-  // Get the server URL dynamically based on current location
-  const getServerUrl = () => {
-    // In production, use the same host as the frontend but on port 5555
-    const hostname = window.location.hostname;
-    return `http://${hostname}:5555`;
-  };
-
   let isRecording = false;
-  let mediaRecorder: MediaRecorder | null = null;
-  let chunks: Blob[] = [];
   let isProcessing = false;
+  let session: SpeechSession | null = null;
+  // Held by callers that want to react to interim transcripts (e.g. show a
+  // "hearing…" UI). Dispatched on each partial.
+  let partial = '';
+
+  // Tag toggle — defaults to user_speech. If a parent reactively flips this
+  // (e.g. when an awaiting_user prompt is active), incoming text is sent as
+  // a reply instead of a new request. Exposed as a Svelte prop.
+  export let replyMode = false;
 
   async function toggleRecording() {
-    if (isRecording && mediaRecorder) {
-      // Stop recording
-      mediaRecorder.stop();
+    if (isRecording && session) {
+      // End the session — onFinal in startSpeechSession will fire after onend.
+      session.stop();
       isRecording = false;
-    } else {
-      // Start recording
-      try {
-        if (!mediaRecorder) {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          mediaRecorder = new MediaRecorder(stream);
-
-          mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-
-          mediaRecorder.onstop = async () => {
-            isProcessing = true;
-            const blob = new Blob(chunks, { type: 'audio/webm' });
-            chunks = [];
-
-            // Upload to backend
-            const formData = new FormData();
-            formData.append('file', blob, 'recording.webm');
-
-            try {
-              const res = await fetch(`${getServerUrl()}/upload_audio`, {
-                method: 'POST',
-                body: formData
-              });
-
-              const json = await res.json();
-
-              if (json.success) {
-                // Connect to agent_responses stream to see the output
-                connectTextStream('agent_responses');
-                dispatch('voiceCommand', { success: true });
-              } else {
-                dispatch('voiceCommand', {
-                  success: false,
-                  error: json.message
-                });
-              }
-            } catch (err) {
-              dispatch('voiceCommand', {
-                success: false,
-                error: err instanceof Error ? err.message : 'Upload failed'
-              });
-            } finally {
-              isProcessing = false;
-            }
-          };
-        }
-
-        mediaRecorder.start();
-        isRecording = true;
-      } catch (err) {
-        dispatch('voiceCommand', {
-          success: false,
-          error: 'Microphone access denied'
-        });
-      }
+      isProcessing = true;
+      return;
     }
+
+    if (!isSTTSupported()) {
+      dispatch('voiceCommand', { success: false, error: 'Speech recognition not supported in this browser' });
+      return;
+    }
+
+    session = startSpeechSession({
+      onPartial: (text) => {
+        partial = text;
+        dispatch('voicePartial', { text });
+      },
+      onFinal: async (text) => {
+        isProcessing = true;
+        try {
+          await submitQuery(text, replyMode ? 'user_reply' : 'user_speech');
+          // Subscribe to narrations (agent's spoken responses) too. The
+          // agent_state stream is owned by a parent component.
+          connectTextStream('agent_responses');
+          dispatch('voiceCommand', { success: true, text });
+        } catch (err) {
+          dispatch('voiceCommand', {
+            success: false,
+            error: err instanceof Error ? err.message : 'submit_query failed',
+          });
+        } finally {
+          isProcessing = false;
+          partial = '';
+        }
+      },
+      onError: (code) => {
+        // 'no-speech' is benign — the user just didn't say anything.
+        if (code !== 'no-speech') {
+          dispatch('voiceCommand', { success: false, error: `stt: ${code}` });
+        }
+        isRecording = false;
+        isProcessing = false;
+        partial = '';
+      },
+    });
+
+    isRecording = true;
   }
 
   // Keyboard shortcut support
