@@ -188,6 +188,44 @@ class BlindAssistantSkillContainer(Module):
         return self._latest_reply
 
     @skill
+    def guide_to(self, destination: str) -> str:
+        """High-level entry point for any 'go to / find X' request.
+
+        Encapsulates the common start of a guide task:
+        - sets the intent (visible in agent_state JSON)
+        - narrates the start so the user hears confirmation
+        - returns a structured next-step hint for the LLM
+
+        Call this FIRST whenever the user asks to go somewhere. Then follow
+        the hint and call `observe`, `navigate_with_text`, `ask_user`, etc.
+
+        Args:
+            destination: short human-readable name, e.g. 'bathroom', 'elevator',
+                'kitchen', 'front desk'.
+
+        Example:
+            guide_to("bathroom")
+        """
+        destination = (destination or "").strip()
+        if not destination:
+            return "Error: destination is required."
+
+        self._intent = f"guide user to {destination}"
+        self._phase = "searching"
+        self._last_narration = f"Heading to the {destination}."
+        self._publish_state()
+        self._tts(self._last_narration)
+
+        return (
+            f"Intent set: guiding user to '{destination}'. "
+            f"Next: call `observe()` to check what's visible. "
+            f"If the {destination} (or a sign for it) is in view, "
+            f"call `navigate_with_text(\"{destination}\")`. "
+            f"Otherwise call `ask_user(\"I don't see the {destination} from "
+            f"here — should I look around?\")` and wait for the reply."
+        )
+
+    @skill
     def reply_user(self, status: str, summary: str) -> str:
         """Terminate the current task and report its outcome.
 
