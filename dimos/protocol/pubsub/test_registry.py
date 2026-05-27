@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import pickle
+
 import pytest
 
 from dimos.core.transport import (
@@ -118,6 +120,43 @@ def test_make_pubsub_transport_jpeg_shm_uses_JpegShmTransport() -> None:
         pytest.skip(f"libturbojpeg not available: {exc}")
     t = make_pubsub_transport("jpeg_shm:color_image")
     assert isinstance(t, JpegShmTransport)
+
+
+def test_pshm_transport_pickle_preserves_default_capacity() -> None:
+    transport = pSHMTransport("/pointcloud", default_capacity=64 * 1024 * 1024)
+
+    restored = pickle.loads(pickle.dumps(transport))
+
+    assert isinstance(restored, pSHMTransport)
+    assert restored.topic == "/pointcloud"
+    assert restored.shm.config.default_capacity == 64 * 1024 * 1024
+
+
+def test_shm_transport_pickle_preserves_default_capacity() -> None:
+    transport = SHMTransport("/bytes", default_capacity=16 * 1024 * 1024)
+
+    restored = pickle.loads(pickle.dumps(transport))
+
+    assert isinstance(restored, SHMTransport)
+    assert restored.topic == "/bytes"
+    assert restored.shm.config.default_capacity == 16 * 1024 * 1024
+
+
+def test_jpeg_shm_transport_pickle_preserves_quality_and_default_capacity() -> None:
+    turbojpeg = pytest.importorskip("turbojpeg")
+    try:
+        turbojpeg.TurboJPEG()
+    except RuntimeError as exc:
+        pytest.skip(f"libturbojpeg not available: {exc}")
+
+    transport = JpegShmTransport("/color_image", quality=80, default_capacity=6 * 1024 * 1024)
+
+    restored = pickle.loads(pickle.dumps(transport))
+
+    assert isinstance(restored, JpegShmTransport)
+    assert restored.topic == "/color_image"
+    assert restored.quality == 80
+    assert restored.shm.config.default_capacity == 6 * 1024 * 1024
 
 
 def test_make_pubsub_transport_typed_proto_without_msg_type_raises() -> None:

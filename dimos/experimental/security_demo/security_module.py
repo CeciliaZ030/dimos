@@ -156,7 +156,9 @@ class SecurityModule(Module):
         self._router: PatrolRouter = _create_router(self.config.g)
         self._visual_servo = _create_visual_servo(self.config, self.config.g)
         self._detector = YoloPersonDetector()
-        self._tracker = EdgeTAMProcessor()
+        self._tracker: EdgeTAMProcessor | None = None
+        self._tracker_error: str | None = None
+        self._tracker_error_reported = False
 
         self._depth_estimator = DepthEstimator(self.depth_image.publish)
 
@@ -185,7 +187,9 @@ class SecurityModule(Module):
         self._stop_security_patrol_internal()
         self._depth_estimator.stop()
         self._detector.stop()
-        self._tracker.stop()
+        if self._tracker is not None:
+            self._tracker.stop()
+            self._tracker = None
         super().stop()
 
     @skill
@@ -308,9 +312,23 @@ class SecurityModule(Module):
             _draw_skeleton(annotated, best)
         self.detection.publish(Image.from_numpy(annotated, format=image.format))
 
+        tracker = self._get_tracker()
+        if tracker is None:
+            if not self._tracker_error_reported:
+                self._speak_skill.speak(
+                    "Intruder detected, but tracking is unavailable on this machine.",
+                    blocking=False,
+                )
+                self._tracker_error_reported = True
+            logger.warning(
+                "Security tracking unavailable; staying in patrol mode.",
+                error=self._tracker_error,
+            )
+            return
+
         # Init EdgeTAM with YOLO bbox for continuous tracking
         box = np.array(list(best.bbox), dtype=np.float32)
-        self._tracker.init_track(image=image, box=box, obj_id=1)
+        tracker.init_track(image=image, box=box, obj_id=1)
 
         self._cancel_current_goal()
         self._has_active_goal = False
@@ -326,7 +344,13 @@ class SecurityModule(Module):
             self._stop_event.wait(timeout=_ANTI_BUSY_LOOP_TIMEOUT)
             return
 
-        detections = self._tracker.process_image(latest_image)
+        tracker = self._get_tracker()
+        if tracker is None:
+            self.cmd_vel.publish(Twist.zero())
+            self._transition_to("PATROLLING")
+            return
+
+        detections = tracker.process_image(latest_image)
 
         if len(detections) == 0:
             self.cmd_vel.publish(Twist.zero())
@@ -362,6 +386,20 @@ class SecurityModule(Module):
         )
 
         time.sleep(1.0 / self.config.follow_frequency)
+
+    def _get_tracker(self) -> EdgeTAMProcessor | None:
+        if self._tracker is not None:
+            return self._tracker
+        if self._tracker_error is not None:
+            return None
+
+        try:
+            self._tracker = EdgeTAMProcessor()
+        except RuntimeError as exc:
+            self._tracker_error = str(exc)
+            logger.warning("Security tracking disabled", error=self._tracker_error)
+            return None
+        return self._tracker
 
     def _find_best_person(self, image: Image) -> Detection2DBBox | None:
         """Run YOLO and return the largest person detection, or None."""

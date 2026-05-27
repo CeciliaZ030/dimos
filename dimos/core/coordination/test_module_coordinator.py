@@ -30,6 +30,7 @@ from dimos.core.coordination.module_coordinator import (
     ModuleCoordinator,
     _all_name_types,
     _check_requirements,
+    _configure_rerun_bridge_visual_transports,
     _verify_no_conflicts_with_existing,
     _verify_no_name_conflicts,
 )
@@ -38,8 +39,10 @@ from dimos.core.core import rpc
 from dimos.core.global_config import GlobalConfig
 from dimos.core.module import Module
 from dimos.core.stream import In, Out
+from dimos.core.transport import LCMTransport, pSHMTransport
 from dimos.msgs.sensor_msgs.Image import Image
 from dimos.spec.utils import Spec
+from dimos.visualization.rerun.bridge import RerunBridgeModule
 
 # Disable Rerun for tests (prevents viewer spawn and gRPC flush errors)
 _BUILD_WITHOUT_RERUN = MappingProxyType(
@@ -774,6 +777,29 @@ def test_restart_preserves_remapped_streams(dynamic_coordinator) -> None:
     # The restarted proxy sees the same topic as the target.
     source_after = dynamic_coordinator.get_instance(SourceModule)
     assert source_after.color_image.transport.topic == target.remapped_data.transport.topic
+
+
+def test_configure_rerun_bridge_forwards_only_shm_transports() -> None:
+    class FakeBridge:
+        def __init__(self) -> None:
+            self.visual_transports = None
+
+        def set_visual_transports(self, transports) -> None:  # type: ignore[no-untyped-def]
+            self.visual_transports = transports
+
+    shm_transport = pSHMTransport("/color_image", default_capacity=1024)
+    lcm_transport = LCMTransport("/status", Data1)
+    bridge = FakeBridge()
+    coordinator = ModuleCoordinator(g=GlobalConfig(n_workers=0, viewer="none"))
+    coordinator._deployed_modules[RerunBridgeModule] = bridge  # type: ignore[assignment]
+    coordinator._transport_registry = {
+        ("color_image", Data1): shm_transport,
+        ("status", Data1): lcm_transport,
+    }
+
+    _configure_rerun_bridge_visual_transports(coordinator)
+
+    assert bridge.visual_transports == [shm_transport]
 
 
 def test_start_rpc_service_responds_to_ping(dynamic_coordinator) -> None:

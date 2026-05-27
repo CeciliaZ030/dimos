@@ -26,6 +26,9 @@ pushing an update that breaks the spawn interface.
 
 import inspect
 import shutil
+from types import SimpleNamespace
+
+from dimos.visualization.rerun.bridge import RerunBridgeModule
 
 
 class TestViewerBinaryInstallation:
@@ -116,3 +119,11 @@ class TestBridgeSpawnLogic:
             "bridge.py start() has no fallback for missing dimos-viewer. "
             "Users without dimos-viewer will crash."
         )
+
+
+def test_bridge_entity_path_normalizes_shm_topics() -> None:
+    bridge = object.__new__(RerunBridgeModule)
+    bridge.config = SimpleNamespace(entity_prefix="world", topic_to_entity=None)
+
+    assert bridge._get_entity_path("color_image") == "world/color_image"
+    assert bridge._get_entity_path("/color_image") == "world/color_image"
