@@ -1,9 +1,11 @@
 import type { QuickAction } from "@/lib/types";
 
+// Natural-language commands sent through /submit_query (the agent), not the
+// direct sport endpoint — so the agent can narrate the action like a voice turn.
 const DEFAULT_ACTIONS: QuickAction[] = [
-  { label: "Sit", command: "Sit" },
-  { label: "Jump", command: "Jump" }, // TBD: not a documented Unitree command yet
-  { label: "Lie down", command: "StandDown" },
+  { label: "Sit", command: "sit" },
+  { label: "Jump", command: "jump" },
+  { label: "Stand", command: "stand up" },
 ];
 
 export default function QuickActions({

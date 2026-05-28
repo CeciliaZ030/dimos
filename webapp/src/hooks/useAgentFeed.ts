@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as dimos from "@/lib/dimos";
 import type { StreamStatus } from "@/lib/dimos";
 import { classifyAgentMessage, type AgentMessage } from "@/lib/agentMessage";
+import { devLog } from "@/lib/devlog";
 
 /**
  * Subscribe to the `agent_responses` stream and expose a clean, de-duplicated
@@ -30,7 +31,8 @@ export function useAgentFeed(opts?: {
       key,
       (data) => {
         const msg = classifyAgentMessage(data);
-        if (!msg || msg.kind === "warning") return; // drop noise
+        if (!msg) return; // empty / keepalive frame
+        devLog({ event: "agent-msg", kind: msg.kind, text: msg.text }); // trace the raw stream
         if (lastTextRef.current === msg.text) return; // drop echoes
         lastTextRef.current = msg.text;
 

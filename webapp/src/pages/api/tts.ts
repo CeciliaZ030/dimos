@@ -19,7 +19,12 @@ import OpenAI from "openai";
 export const config = { api: { responseLimit: false } };
 
 const MODEL = process.env.OPENAI_TTS_MODEL ?? "gpt-4o-mini-tts";
-const VOICE = process.env.OPENAI_TTS_VOICE ?? "onyx"; // matches the robot's voice
+const VOICE = process.env.OPENAI_TTS_VOICE ?? "coral"; // warm, pleasant female voice
+// gpt-4o-mini-tts is steerable via `instructions` (the numeric `speed` param is
+// not honored by this model), so we set the pace/tone here.
+const INSTRUCTIONS =
+  process.env.OPENAI_TTS_INSTRUCTIONS ??
+  "Speak in a warm, friendly, upbeat female voice at a brisk, slightly faster-than-normal pace. Sound natural and clear.";
 
 let client: OpenAI | null = null;
 function getClient(apiKey: string): OpenAI {
@@ -53,6 +58,7 @@ export default async function handler(
       model: MODEL,
       voice: VOICE,
       input: text,
+      instructions: INSTRUCTIONS,
       response_format: "mp3",
     });
 

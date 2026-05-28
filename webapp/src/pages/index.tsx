@@ -27,9 +27,16 @@ export default function Home() {
     ttsEnabledRef.current = ttsEnabled;
   }, [ttsEnabled]);
 
+  // Barge-in: while the user is holding to speak, suppress incoming TTS so the
+  // previous turn's reply doesn't talk over them. Synced from `recording` below.
+  const recordingRef = useRef(false);
+
   const handleAgentMessage = useCallback((m: AgentMessage) => {
-    devLog({ event: "tts", spoke: ttsEnabledRef.current, text: m.text });
-    if (ttsEnabledRef.current) speak(m.text);
+    // Speak only final `ai` replies, and not while the user is mid-utterance.
+    const willSpeak =
+      ttsEnabledRef.current && m.kind === "ai" && !recordingRef.current;
+    devLog({ event: "tts", spoke: willSpeak, kind: m.kind, text: m.text });
+    if (willSpeak) speak(m.text);
   }, []);
 
   const { messages, active, markIdle } = useAgentFeed({
@@ -40,23 +47,30 @@ export default function Home() {
   const driveRef = useRef<MoveCommand>(ZERO);
   const tickRef = useRef<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const connected = useStatus();
 
   const submitSpeech = useCallback(async (text: string) => {
     const payload = wrapUserSpeech(text);
     devLog({ transcript: text, payload });
+    setActionError(null);
     try {
       await dimos.submitQuery(payload);
     } catch (err) {
       console.error("submit failed", err);
+      setActionError("Couldn't reach the robot — try again.");
     }
   }, []);
 
   const { recording, transcript, error, start, stop } = useStt(submitSpeech);
+  useEffect(() => {
+    recordingRef.current = recording;
+  }, [recording]);
 
   // Pressing the talk button is a user gesture: unlock iOS speech and stop any
   // current playback so it doesn't talk over the new command.
   const handleStart = useCallback(() => {
+    setActionError(null); // clear any stale "couldn't reach the robot" notice
     cancelSpeech(); // stop any current playback first…
     unlockSpeech(); // …then prime within this gesture
     start();
@@ -76,10 +90,14 @@ export default function Home() {
 
   async function handleAction(a: QuickAction) {
     setBusy(true);
+    setActionError(null);
     try {
-      await dimos.unitreeCommand(a.command);
+      // Route through the agent (so it narrates "I'm standing up…"), same path
+      // as a voice command — but no <user_speech> wrap since this is a button.
+      await dimos.submitQuery(a.command);
     } catch (err) {
       console.error("command failed", err);
+      setActionError("Couldn't reach the robot — try again.");
     } finally {
       setBusy(false);
     }
@@ -148,7 +166,7 @@ export default function Home() {
               active={active}
               recording={recording}
               transcript={transcript || undefined}
-              error={error || undefined}
+              error={error || actionError || undefined}
               busy={busy}
               onStart={handleStart}
               onStop={stop}

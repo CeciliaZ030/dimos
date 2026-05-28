@@ -7,41 +7,47 @@ describe("classifyAgentMessage", () => {
     expect(classifyAgentMessage("   ")).toBeNull();
   });
 
-  it("classifies a spoken line and strips the prefix", () => {
-    expect(classifyAgentMessage("Spoke: I've moved forward.")).toEqual({
-      kind: "spoke",
-      text: "I've moved forward.",
-    });
-  });
-
-  it("classifies warnings and strips the prefix", () => {
+  it("parses an ai envelope (the spoken reply)", () => {
     expect(
-      classifyAgentMessage("Warning: TTS timeout while speaking: hi"),
-    ).toEqual({ kind: "warning", text: "TTS timeout while speaking: hi" });
+      classifyAgentMessage('{"kind":"ai","text":"I moved forward."}'),
+    ).toEqual({ kind: "ai", text: "I moved forward." });
   });
 
-  it("classifies completion status", () => {
+  it("parses a tool envelope (status — not spoken)", () => {
     expect(
-      classifyAgentMessage("'Hello' command executed successfully.")!.kind,
-    ).toBe("status");
-    expect(classifyAgentMessage("Navigation goal reached")!.kind).toBe("status");
+      classifyAgentMessage('{"kind":"tool","text":"Navigation goal reached"}'),
+    ).toEqual({ kind: "tool", text: "Navigation goal reached" });
   });
 
-  it("strips wrapping quotes around the whole string", () => {
-    expect(classifyAgentMessage("'Hello there'")!.text).toBe("Hello there");
+  it("parses a system envelope", () => {
+    expect(
+      classifyAgentMessage('{"kind":"system","text":"reconnected"}'),
+    ).toEqual({ kind: "system", text: "reconnected" });
   });
 
-  it("treats other text as a message", () => {
-    expect(classifyAgentMessage("Hello! I am Daneel.")).toEqual({
-      kind: "message",
-      text: "Hello! I am Daneel.",
-    });
-  });
-
-  it("extracts text from a JSON frame", () => {
+  it("defaults missing or unknown kind to ai", () => {
     expect(classifyAgentMessage('{"text":"hi there"}')).toEqual({
-      kind: "message",
+      kind: "ai",
       text: "hi there",
     });
+    expect(classifyAgentMessage('{"kind":"weird","text":"hey"}')).toEqual({
+      kind: "ai",
+      text: "hey",
+    });
+  });
+
+  it("drops envelopes with empty text", () => {
+    expect(classifyAgentMessage('{"kind":"tool","text":""}')).toBeNull();
+  });
+
+  it("treats legacy plain text as an ai reply", () => {
+    expect(classifyAgentMessage("Hello! I am Goldie.")).toEqual({
+      kind: "ai",
+      text: "Hello! I am Goldie.",
+    });
+  });
+
+  it("strips wrapping quotes on legacy plain text", () => {
+    expect(classifyAgentMessage("'Hello there'")!.text).toBe("Hello there");
   });
 });

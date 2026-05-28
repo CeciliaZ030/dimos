@@ -29,12 +29,17 @@ interface SpeechRecognitionResultLike
 interface SpeechRecognitionEventLike {
   results: ArrayLike<SpeechRecognitionResultLike>;
 }
+/** onerror payload — `.error` is a code like "no-speech" | "network" | "not-allowed". */
+export interface SpeechRecognitionErrorLike {
+  error: string;
+  message?: string;
+}
 interface SpeechRecognitionLike {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
   onresult: ((e: SpeechRecognitionEventLike) => void) | null;
-  onerror: ((e: unknown) => void) | null;
+  onerror: ((e: SpeechRecognitionErrorLike) => void) | null;
   onend: (() => void) | null;
   start(): void;
   stop(): void;
@@ -64,12 +69,33 @@ class WebSpeechStt implements SttProvider {
     return !!this.ctor();
   }
 
+  /**
+   * Detach handlers and abort any live session so it can't keep the mic open
+   * or fire stale callbacks. Prevents overlapping sessions when the button is
+   * pressed again before the previous recognition has fully ended.
+   */
+  private teardown() {
+    const rec = this.rec;
+    if (!rec) return;
+    this.rec = null;
+    rec.onresult = null;
+    rec.onerror = null;
+    rec.onend = null;
+    try {
+      rec.abort();
+    } catch {
+      /* already stopped */
+    }
+  }
+
   start(cb: SttCallbacks) {
     const Ctor = this.ctor();
     if (!Ctor) {
       cb.onError?.(new Error("SpeechRecognition unsupported"));
       return;
     }
+    this.teardown(); // replace any previous session cleanly
+
     const rec = new Ctor();
     this.rec = rec;
     this.latest = "";
@@ -85,16 +111,26 @@ class WebSpeechStt implements SttProvider {
       cb.onInterim?.(full.trim());
     };
     rec.onerror = (ev) => cb.onError?.(ev);
-    rec.onend = () => cb.onFinal(this.latest.trim());
+    rec.onend = () => {
+      if (this.rec !== rec) return; // superseded by a newer session — ignore
+      this.rec = null;
+      cb.onFinal(this.latest.trim());
+    };
     try {
       rec.start();
     } catch (e) {
+      // e.g. iOS throws if a prior session is still tearing down
+      this.teardown();
       cb.onError?.(e);
     }
   }
 
   stop() {
-    this.rec?.stop();
+    try {
+      this.rec?.stop();
+    } catch {
+      /* not running */
+    }
   }
 }
 

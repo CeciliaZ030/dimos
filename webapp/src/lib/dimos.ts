@@ -27,15 +27,45 @@ function headers(extra: Record<string, string> = {}): Record<string, string> {
   return h;
 }
 
+/**
+ * fetch with a timeout and a few retries — rides out the transient connection
+ * drops you get through an ngrok free tunnel on mobile (which otherwise surface
+ * as "TypeError: Load failed" and silently lose the command). Retries network
+ * failures, timeouts, and 5xx; returns 4xx as-is for the caller to handle.
+ */
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit = {},
+  { retries = 2, timeoutMs = 8000 }: { retries?: number; timeoutMs?: number } = {},
+): Promise<Response> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...init, signal: ctrl.signal });
+      clearTimeout(timer);
+      if (res.status >= 500) throw new Error(`HTTP ${res.status}`);
+      return res;
+    } catch (err) {
+      clearTimeout(timer);
+      lastErr = err;
+      if (attempt < retries) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 /** Text query → agent. multipart/form-data, field `query` (NOT JSON). */
 export async function submitQuery(query: string): Promise<void> {
   const fd = new FormData();
   fd.append("query", query);
-  await fetch(`${API}/submit_query`, {
+  const res = await fetchWithRetry(`${API}/submit_query`, {
     method: "POST",
     body: fd,
     headers: headers(),
   });
+  if (!res.ok) throw new Error(`submit_query failed: ${res.status}`);
 }
 
 /** Upload a recorded clip; field name MUST be `file`. Returns the transcript. */
@@ -62,16 +92,22 @@ export async function listStreams(): Promise<string[]> {
 
 /** Direct sport command, bypassing the LLM. JSON body. */
 export async function unitreeCommand(command: string): Promise<void> {
-  await fetch(`${API}/unitree/command`, {
+  const res = await fetchWithRetry(`${API}/unitree/command`, {
     method: "POST",
     headers: headers({ "Content-Type": "application/json" }),
     body: JSON.stringify({ command }),
   });
+  if (!res.ok) throw new Error(`unitree/command failed: ${res.status}`);
 }
 
 export async function getStatus(): Promise<{ connected: boolean }> {
   try {
-    const res = await fetch(`${API}/unitree/status`, { headers: headers() });
+    // timeout only (no retries) — a poll that hangs shouldn't pile up.
+    const res = await fetchWithRetry(
+      `${API}/unitree/status`,
+      { headers: headers() },
+      { retries: 0, timeoutMs: 4000 },
+    );
     if (!res.ok) return { connected: false };
     const data = await res.json();
     // Real backend: {status:"online",...}; mock: {connected:true}. Accept both.
@@ -92,7 +128,11 @@ export async function move(cmd: MoveCommand): Promise<void> {
 
 /** TBD: interrupt the running agent — endpoint not yet defined; stubbed in the mock. */
 export async function interrupt(): Promise<void> {
-  await fetch(`${API}/interrupt`, { method: "POST", headers: headers() });
+  await fetchWithRetry(
+    `${API}/interrupt`,
+    { method: "POST", headers: headers() },
+    { retries: 1 },
+  );
 }
 
 export type StreamStatus = "connecting" | "open" | "error";

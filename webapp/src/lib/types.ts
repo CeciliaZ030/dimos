@@ -10,10 +10,10 @@ export type UnitreeCommand =
   | "Dance1"
   | "Dance2";
 
-/** A quick-action button. `command` is what we send the robot. */
+/** A quick-action button. `command` is the natural-language query sent to the
+ *  agent via /submit_query (e.g. "sit", "stand up") — NOT the direct sport command. */
 export interface QuickAction {
   label: string;
-  /** Sport command name. NOTE: "Jump" is not yet a documented command — TBD on the robot. */
   command: string;
 }
 

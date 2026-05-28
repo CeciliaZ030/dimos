@@ -38,13 +38,11 @@ export default function StatusCard({
           {messages.map((m, i) => {
             const latest = i === messages.length - 1;
             const tone =
-              m.kind === "spoke"
-                ? "text-gold"
-                : m.kind === "status"
-                  ? "text-[12px] text-faint"
-                  : latest
-                    ? "text-fg"
-                    : "text-muted";
+              m.kind === "tool" || m.kind === "system"
+                ? "text-[12px] text-faint"
+                : latest
+                  ? "text-fg"
+                  : "text-muted";
             return (
               <p
                 key={i}

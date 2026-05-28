@@ -11,11 +11,12 @@ type Run = { startedAt: number } | null;
 // process — enough to simulate "after a query, the agent replies for a bit".
 let run: Run = null;
 
-// Scripted plain-text agent_responses (mirrors the real backend's feed).
-const SCRIPT: { at: number; text: string }[] = [
-  { at: 300, text: "On it." },
-  { at: 1400, text: "Navigation goal reached" },
-  { at: 2400, text: "Spoke: Done — what would you like next?" },
+// Scripted agent_responses (mirrors the real backend's typed JSON envelopes:
+// kind "ai" = spoken reply, kind "tool" = status that is shown but not spoken).
+const SCRIPT: { at: number; data: string }[] = [
+  { at: 300, data: JSON.stringify({ kind: "ai", text: "On it." }) },
+  { at: 1400, data: JSON.stringify({ kind: "tool", text: "Navigation goal reached" }) },
+  { at: 2400, data: JSON.stringify({ kind: "ai", text: "Done — what would you like next?" }) },
 ];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -49,7 +50,7 @@ export default async function handler(
         }
         const elapsed = Date.now() - run.startedAt;
         while (idx < SCRIPT.length && SCRIPT[idx].at <= elapsed) {
-          res.write(`data: ${SCRIPT[idx].text}\n\n`);
+          res.write(`data: ${SCRIPT[idx].data}\n\n`);
           idx++;
         }
         if (idx >= SCRIPT.length) run = null;
