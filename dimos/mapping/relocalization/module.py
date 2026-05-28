@@ -63,6 +63,9 @@ class RelocalizationModule(Module):
         self._premap: PointCloud2 | None = None
         self._last_skip_log = 0.0
         self._world_to_map: Subject[Transform | None] = Subject()
+        self._last_world_to_map: Transform | None = None
+        self._last_fitness: float | None = None
+        self._last_relocalization_ts: float | None = None
 
     @rpc
     def start(self) -> None:
@@ -154,6 +157,9 @@ class RelocalizationModule(Module):
             frame_id=FRAME_WORLD,
             child_frame_id=FRAME_MAP,
         )
+        self._last_world_to_map = new_tf
+        self._last_fitness = float(fitness)
+        self._last_relocalization_ts = time.time()
         logger.info(
             f"relocalize: fitness={fitness:.3f} time_cost={dt:.1f}s n_pts={n_pts} "
             f"reloc_t={T[:3, 3].round(3).tolist()} "
@@ -189,3 +195,20 @@ class RelocalizationModule(Module):
                 grid.dispose()
         else:
             self.merged_map.publish(local + premap_in_world)
+
+    @rpc
+    def get_status(self) -> dict[str, Any]:
+        """Return current saved-map relocalization status."""
+        enabled = self.config.map_file is not None
+        age = (
+            time.time() - self._last_relocalization_ts
+            if self._last_relocalization_ts is not None
+            else None
+        )
+        return {
+            "enabled": enabled,
+            "localized": self._last_world_to_map is not None,
+            "map_file": self.config.map_file,
+            "last_fitness": self._last_fitness,
+            "last_update_age_sec": age,
+        }

@@ -21,10 +21,12 @@ from dimos.agents.annotation import skill
 from dimos.core.core import rpc
 from dimos.core.module import Module
 from dimos.core.stream import In
+from dimos.mapping.relocalization.module_spec import RelocalizationSpec
 from dimos.models.qwen.bbox import BBox
 from dimos.msgs.geometry_msgs.PoseStamped import PoseStamped
 from dimos.msgs.geometry_msgs.Quaternion import Quaternion
-from dimos.msgs.geometry_msgs.Vector3 import Vector3, make_vector3
+from dimos.msgs.geometry_msgs.Transform import Transform
+from dimos.msgs.geometry_msgs.Vector3 import make_vector3
 from dimos.msgs.sensor_msgs.Image import Image
 from dimos.navigation.base import NavigationState
 from dimos.navigation.navigation_spec import NavigationInterfaceSpec
@@ -36,6 +38,61 @@ from dimos.utils.logging_config import setup_logger
 
 logger = setup_logger()
 
+COORDINATE_FRAME_KEY = "coordinate_frame"
+MAP_FRAME = "map"
+WORLD_FRAME = "world"
+BASE_LINK_FRAME = "base_link"
+SAVED_PLACE_FRAME = "saved_place"
+
+
+def robot_location_from_transform(
+    name: str,
+    coordinate_frame: str,
+    frame_to_place: Transform,
+    *,
+    description: str = "",
+    map_file: str | None = None,
+) -> RobotLocation:
+    euler = frame_to_place.rotation.to_euler()
+    metadata: dict[str, Any] = {
+        COORDINATE_FRAME_KEY: coordinate_frame,
+        "description": description or name,
+    }
+    if map_file is not None:
+        metadata["map_file"] = map_file
+
+    return RobotLocation(
+        name=name,
+        position=(
+            frame_to_place.translation.x,
+            frame_to_place.translation.y,
+            frame_to_place.translation.z,
+        ),
+        rotation=(euler.x, euler.y, euler.z),
+        metadata=metadata,
+    )
+
+
+def pose_from_robot_location(
+    location: RobotLocation,
+    *,
+    world_to_map: Transform | None = None,
+) -> PoseStamped | None:
+    coordinate_frame = str(location.metadata.get(COORDINATE_FRAME_KEY, WORLD_FRAME))
+    location_tf = Transform(
+        translation=make_vector3(*location.position),
+        rotation=Quaternion.from_euler(make_vector3(*location.rotation)),
+        frame_id=coordinate_frame,
+        child_frame_id=SAVED_PLACE_FRAME,
+    )
+
+    if coordinate_frame == MAP_FRAME:
+        if world_to_map is None:
+            return None
+        return (world_to_map + location_tf).to_pose()
+
+    return location_tf.to_pose()
+
 
 class NavigationSkillContainer(Module):
     _latest_image: Image | None = None
@@ -45,6 +102,7 @@ class NavigationSkillContainer(Module):
 
     _spatial_memory: SpatialMemorySpec
     _navigation: NavigationInterfaceSpec
+    _relocalization: RelocalizationSpec | None = None
     _object_tracking: ObjectTrackingSpec | None = None
 
     color_image: In[Image]
@@ -89,26 +147,92 @@ class NavigationSkillContainer(Module):
             str: the outcome
         """
 
+        return self._remember_place(location_name, description="", require_map_frame=False)
+
+    @skill
+    def remember_place(self, name: str, description: str = "") -> str:
+        """Remember the current place in the saved map for future navigation.
+
+        Use this when the user labels the current location, for example "this is the toilet".
+        The robot must be relocalized against a saved map so the place survives restarts.
+
+        Args:
+            name: Short place name, such as "toilet", "front door", or "charger".
+            description: Optional extra words or aliases that should match this place later.
+        """
+        return self._remember_place(name, description=description, require_map_frame=True)
+
+    @skill
+    def localization_status(self) -> str:
+        """Report whether saved-map relocalization is configured and currently localized."""
+        status = self._get_relocalization_status()
+        if status is None:
+            return "Saved-map relocalization is not configured in this blueprint."
+
+        if not status.get("enabled"):
+            return "Saved-map relocalization is disabled because no map file is configured."
+
+        map_file = status.get("map_file")
+        if not status.get("localized"):
+            return f"Loaded map '{map_file}', but relocalization has not succeeded yet."
+
+        fitness = status.get("last_fitness")
+        age = status.get("last_update_age_sec")
+        fitness_text = f"{fitness:.3f}" if isinstance(fitness, float) else "unknown"
+        age_text = f"{age:.1f}s ago" if isinstance(age, float) else "unknown age"
+        return f"Localized on map '{map_file}' with fitness {fitness_text}; last update {age_text}."
+
+    def _remember_place(
+        self,
+        name: str,
+        *,
+        description: str,
+        require_map_frame: bool,
+    ) -> str:
         if not self._skill_started:
             raise ValueError(f"{self} has not been started.")
+
+        status = self._get_relocalization_status()
+        if status and status.get("localized"):
+            map_to_base = self.tf.get(MAP_FRAME, BASE_LINK_FRAME, time_tolerance=1.0)
+            if map_to_base is not None:
+                location = robot_location_from_transform(
+                    name,
+                    MAP_FRAME,
+                    map_to_base,
+                    description=description,
+                    map_file=status.get("map_file"),
+                )
+                if not self._spatial_memory.tag_location(location):
+                    return f"Error: Failed to store '{name}' in the spatial memory."
+                logger.info(f"Remembered map-stable place {location}")
+                return (
+                    f"Remembered '{name}' in the saved map at "
+                    f"({location.position[0]:.2f}, {location.position[1]:.2f})."
+                )
+
+        if require_map_frame:
+            return (
+                "I cannot remember this as a saved-map place yet because relocalization is not ready. "
+                "Start the relocalized blueprint with a map file and wait until localization_status says localized."
+            )
 
         if not self._latest_odom:
             return "No odometry data received yet, cannot tag location."
 
-        position = self._latest_odom.position
-        rotation = self._latest_odom.orientation
-
-        location = RobotLocation(
-            name=location_name,
-            position=(position.x, position.y, position.z),
-            rotation=(rotation.x, rotation.y, rotation.z),
+        world_to_base = Transform.from_pose(BASE_LINK_FRAME, self._latest_odom)
+        location = robot_location_from_transform(
+            name,
+            self._latest_odom.frame_id or WORLD_FRAME,
+            world_to_base,
+            description=description,
         )
 
         if not self._spatial_memory.tag_location(location):
-            return f"Error: Failed to store '{location_name}' in the spatial memory"
+            return f"Error: Failed to store '{name}' in the spatial memory"
 
-        logger.info(f"Tagged {location}")
-        return f"Tagged '{location_name}': ({position.x},{position.y})."
+        logger.info(f"Tagged non-relocalized place {location}")
+        return f"Tagged '{name}': ({location.position[0]:.2f},{location.position[1]:.2f})."
 
     @skill
     def navigate_with_text(self, query: str) -> str:
@@ -150,13 +274,29 @@ class NavigationSkillContainer(Module):
             return None
 
         logger.info("Found tagged location", location=robot_location)
-        goal_pose = PoseStamped(
-            position=make_vector3(*robot_location.position),
-            orientation=Quaternion.from_euler(Vector3(*robot_location.rotation)),
-            frame_id="map",
-        )
+        goal_pose = self._goal_pose_from_robot_location(robot_location)
+        if goal_pose is None:
+            return (
+                f"Found saved place '{robot_location.name}', but I am not relocalized in the saved map. "
+                "Call localization_status and wait for relocalization before navigating to saved places."
+            )
 
         return self._navigate_to(goal_pose, f"Found a tagged location called '{query}'.")
+
+    @skill
+    def go_to_place(self, query: str) -> str:
+        """Navigate to a manually remembered place in saved-place memory.
+
+        Args:
+            query: Place name or description, such as "toilet" or "front door".
+        """
+        if not self._skill_started:
+            raise ValueError(f"{self} has not been started.")
+
+        result = self._navigate_by_tagged_location(query)
+        if result:
+            return result
+        return f"No remembered place matching '{query}'."
 
     def _navigate_to(self, pose: PoseStamped, message: str) -> str:
         logger.info(
@@ -278,3 +418,14 @@ class NavigationSkillContainer(Module):
             orientation=Quaternion.from_euler(make_vector3(0, 0, theta)),
             frame_id="map",
         )
+
+    def _goal_pose_from_robot_location(self, location: RobotLocation) -> PoseStamped | None:
+        world_to_map = None
+        if location.metadata.get(COORDINATE_FRAME_KEY) == MAP_FRAME:
+            world_to_map = self.tf.get(WORLD_FRAME, MAP_FRAME, time_tolerance=1.0)
+        return pose_from_robot_location(location, world_to_map=world_to_map)
+
+    def _get_relocalization_status(self) -> dict[str, Any] | None:
+        if self._relocalization is None:
+            return None
+        return self._relocalization.get_status()

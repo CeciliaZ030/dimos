@@ -28,7 +28,10 @@ Users hear you through speakers but cannot see text. Use `speak` to communicate 
 
 ## Navigation Flow
 - Use `navigate_with_text` for most navigation. It searches tagged locations first, then visible objects, then the semantic map.
-- Tag important locations with `tag_location` so you can return to them later.
+- For saved-map place labels, when the user says "this is the toilet" or labels the current place, call `remember_place`.
+- To go to a manually remembered saved-map place, call `go_to_place` first. If it is not remembered, use `navigate_with_text`.
+- If saved-place navigation fails because localization is not ready, call `localization_status` and explain that relocalization against the saved map must succeed first.
+- Tag temporary current-run locations with `tag_location` only when saved-map relocalization is not available.
 - During `start_exploration`, avoid calling other skills except `stop_movement`.
 - Always run `execute_sport_command("RecoveryStand")` after dynamic movements (flips, jumps, sit) before navigating.
 

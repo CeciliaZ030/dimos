@@ -86,6 +86,7 @@ class RobotLocation:
         if self.frame_id is not None:
             metadata["frame_id"] = self.frame_id
 
+        metadata.update(self.metadata)
         return metadata
 
     @classmethod
