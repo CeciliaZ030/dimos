@@ -1,329 +1,153 @@
 <div align="center">
 
-<img width="1000" alt="banner_bordered_trimmed" src="https://github.com/user-attachments/assets/64f13b39-da06-4f58-add0-cfc44f04db4e" />
+# 🦮 Goldie
 
-<h2>The Agentive Operating System for Physical Space</h2>
+### A phone-first guide-dog interface for the Unitree Go2
 
-[![Discord](https://img.shields.io/discord/1341146487186391173?style=flat-square&logo=discord&logoColor=white&label=Discord&color=5865F2)](https://discord.gg/dimos)
-[![Stars](https://img.shields.io/github/stars/dimensionalOS/dimos?style=flat-square)](https://github.com/dimensionalOS/dimos/stargazers)
-[![Forks](https://img.shields.io/github/forks/dimensionalOS/dimos?style=flat-square)](https://github.com/dimensionalOS/dimos/fork)
-[![Contributors](https://img.shields.io/github/contributors/dimensionalOS/dimos?style=flat-square)](https://github.com/dimensionalOS/dimos/graphs/contributors)
-![Nix](https://img.shields.io/badge/Nix-flakes-5277C3?style=flat-square&logo=NixOS&logoColor=white)
-![NixOS](https://img.shields.io/badge/NixOS-supported-5277C3?style=flat-square&logo=NixOS&logoColor=white)
-![CUDA](https://img.shields.io/badge/CUDA-supported-76B900?style=flat-square&logo=nvidia&logoColor=white)
-[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
+**Goldie** lets a low-vision or blind user point a real quadruped robot at a destination, hear it confirm out loud, and follow it there — using only their phone.
 
-<a href="https://trendshift.io/repositories/23169" target="_blank"><img src="https://trendshift.io/api/badge/repositories/23169" alt="dimensionalOS%2Fdimos | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+It's an iPhone-tuned PWA wired to an LLM-driven agent stack built on top of [DimOS](https://github.com/dimensionalOS/dimos), with real-time teleop fallback and a voice loop tuned end-to-end for accessibility.
 
-<big><big>
-
-[Hardware](#hardware) •
-[Installation](#installation) •
-[Agent CLI & MCP](#agent-cli-and-mcp) •
-[Blueprints](#blueprints) •
-[Development](#development)
-
-⚠️ **Pre-Release Beta** ⚠️
-
-</big></big>
+### [Demo & Presentation →](https://canva.link/perception-goldie)
 
 </div>
 
-# Intro
+---
 
-Dimensional is the modern operating system for generalist robotics. We are setting the next-generation SDK standard, integrating with the majority of robot manufacturers.
+## The story
 
-With a simple install and no ROS required, build physical applications entirely in python that run on any humanoid, quadruped, or drone.
+People who are blind or low-vision rely on guide dogs to navigate the world. Guide dogs work — but they're scarce, expensive, take years to train, and can't be summoned on demand. We wanted to see how close we could get to that experience with a quadruped robot, an LLM, and a phone.
 
-Dimensional is agent native -- "vibecode" your robots in natural language and build (local & hosted) multi-agent systems that work seamlessly with your hardware. Agents run as native modules — subscribing to any embedded stream, from perception (lidar, camera) and spatial memory down to control loops and motor drivers.
-<table>
-  <tr>
-    <td align="center" width="50%">
-      <a href="docs/capabilities/navigation/native/index.md"><img src="assets/readme/navigation.gif" alt="Navigation" width="100%"></a>
-    </td>
-    <td align="center" width="50%">
-      <img src="assets/readme/perception.png" alt="Perception" width="100%">
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="50%">
-      <h3><a href="docs/capabilities/navigation/native/index.md">Navigation and Mapping</a></h3>
-      SLAM, dynamic obstacle avoidance, route planning, and autonomous exploration — via both DimOS native and ROS<br><a href="https://x.com/stash_pomichter/status/2010471593806545367">Watch video</a>
-    </td>
-    <td align="center" width="50%">
-      <h3>Perception</h3>
-      Detectors, 3d projections, VLMs, Audio processing
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="50%">
-      <a href="docs/capabilities/agents/readme.md"><img src="assets/readme/agentic_control.gif" alt="Agents" width="100%"></a>
-    </td>
-    <td align="center" width="50%">
-      <img src="assets/readme/spatial_memory.gif" alt="Spatial Memory" width="100%">
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="50%">
-      <h3><a href="docs/capabilities/agents/readme.md">Agentive Control, MCP</a></h3>
-      "hey Robot, go find the kitchen"<br><a href="https://x.com/stash_pomichter/status/2015912688854200322">Watch video</a>
-    </td>
-    <td align="center" width="50%">
-      <h3>Spatial Memory</a></h3>
-      Spatio-temporal RAG, Dynamic memory, Object localization and permanence<br><a href="https://x.com/stash_pomichter/status/1980741077205414328">Watch video</a>
-    </td>
-  </tr>
-</table>
+The pitch: **you hold a button and say "find the bathroom." The dog confirms out loud, gets up, walks you there, and tells you when you've arrived.**
 
+We started from the [DimOS](https://github.com/dimensionalOS/dimos) robotics SDK — which already handles WebRTC to a Unitree Go2, ROS-compatible transports, LCM message bus, MCP-driven LLM agents, and SLAM/navigation — and built two things on top:
 
-# Hardware
+1. **Goldie, the phone app** — voice-first, every agent reply spoken back, barge-in to interrupt, manual joystick fallback.
+2. **DimOS extensions** — wiring the agent's replies to the phone, a direct-move skill for stairs, and macOS support so we could develop without a Linux box.
+
+---
+
+## What we built
+
+### 1. `webapp/` — Goldie (the phone app)
 
 <table>
   <tr>
-    <td align="center" width="20%">
-      <h3>Quadruped</h3>
-      <img width="245" height="1" src="assets/readme/spacer.png">
-    </td>
-    <td align="center" width="20%">
-      <h3>Humanoid</h3>
-      <img width="245" height="1" src="assets/readme/spacer.png">
-    </td>
-    <td align="center" width="20%">
-      <h3>Arm</h3>
-      <img width="245" height="1" src="assets/readme/spacer.png">
-    </td>
-    <td align="center" width="20%">
-      <h3>Drone</h3>
-      <img width="245" height="1" src="assets/readme/spacer.png">
-    </td>
-    <td align="center" width="20%">
-      <h3>Misc</h3>
-      <img width="245" height="1" src="assets/readme/spacer.png">
-    </td>
-  </tr>
-
-  <tr>
-    <td align="center" width="20%">
-      🟩 <a href="docs/platforms/quadruped/go2/index.md">Unitree Go2 pro/air</a><br>
-      🟥 <a href="dimos/robot/unitree/b1">Unitree B1</a><br>
-    </td>
-    <td align="center" width="20%">
-      🟨 <a href="docs/platforms/humanoid/g1/index.md">Unitree G1</a><br>
-    </td>
-    <td align="center" width="20%">
-      🟨 <a href="docs/capabilities/manipulation/readme.md">Xarm</a><br>
-      🟨 <a href="docs/capabilities/manipulation/readme.md">AgileX Piper</a><br>
-    </td>
-    <td align="center" width="20%">
-      🟧 <a href="dimos/robot/drone/README.md">MAVLink</a><br>
-      🟧 <a href="dimos/robot/drone/README.md">DJI Mavic</a><br>
-    </td>
-    <td align="center" width="20%">
-      🟥 <a href="https://github.com/dimensionalOS/openFT-sensor">Force Torque Sensor</a><br>
-    </td>
+    <td align="center"><img src="docs/screenshots/splash.png" width="220"/><br/><sub>Splash</sub></td>
+    <td align="center"><img src="docs/screenshots/voice.png" width="220"/><br/><sub>Voice mode</sub></td>
+    <td align="center"><img src="docs/screenshots/manual.png" width="220"/><br/><sub>Manual mode</sub></td>
   </tr>
 </table>
-<br>
-<div align="right">
-🟩 stable 🟨 beta 🟧 alpha 🟥 experimental
 
-</div>
+A Next.js 16 PWA, written ground-up during the hackathon. Designed to be opened in Safari on iPhone (Add-to-Home-Screen ready). The whole UI is one page with two modes.
 
-> [!IMPORTANT]
-> 🤖 Direct your favorite Agent (OpenClaw, Claude Code, etc.) to [AGENTS.md](AGENTS.md) and our [CLI and MCP](#agent-cli-and-mcp) interfaces to start building powerful Dimensional applications.
+| | |
+|---|---|
+| **Voice mode** | Hold-to-speak → on-device STT → query sent to the agent → agent replies stream back over SSE → phone speaks them via OpenAI TTS. Includes **barge-in**: starting a new utterance cancels the in-flight reply. |
+| **Manual mode** | Analog joystick → Socket.IO `move_command` Twist at 15 Hz directly to the dog, bypassing the LLM. For when you just want to drive. |
+| **Quick actions** | Sit / Stand / Jump buttons that go through the agent so it narrates the action. |
+| **Interrupt** | Cuts the agent off mid-task and silences speech instantly. |
+| **Status feed** | Live SSE feed — tool/status lines shown dimmed, agent replies spoken aloud. |
 
-# Installation
+### 2. `dimos/` — DimOS extensions
 
-## Interactive Install
+| Change | What it does |
+|---|---|
+| **Typed agent message envelopes** (`dimos/agents/web_human_input.py`) | `WebInput` subscribes to the agent's LCM `/agent` topic and forwards each message as `{kind: "ai"\|"tool"\|"system", text}` — so the phone knows what to *speak* vs what to just *show*. |
+| **Direct `move` skill with stall recovery** (`dimos/robot/unitree/unitree_skill_container.py`) | The LLM can issue short velocity commands when the global planner can't find a path. Watches odometry, stops early on stalls, performs a reverse-recovery if blocked. |
+| **macOS support fixes** | Fixed the full stack to run on Apple Silicon for development and demos. |
 
-```sh skip
-curl -fsSL https://raw.githubusercontent.com/dimensionalOS/dimos/main/scripts/install.sh | bash
-```
+---
 
-> See [`scripts/install.sh --help`](scripts/install.sh) for non-interactive and advanced options.
+## Architecture
 
-## Manual System Install
+![Goldie architecture](./docs/goldie-architecture.png)
 
-To set up your system dependencies, follow one of these guides:
+See [`webapp/TECHFLOW.md`](webapp/TECHFLOW.md) for a full end-to-end trace of every channel.
 
-- 🟩 [Ubuntu 22.04 / 24.04](docs/installation/ubuntu.md)
-- 🟩 [NixOS / General Linux](docs/installation/nix.md)
-- 🟧 [macOS](docs/installation/osx.md)
+---
 
-> Full system requirements, tested configs, and dependency tiers: [docs/requirements.md](docs/requirements.md)
+## Climbing stairs
 
-## Python Install
+One of our proudest moments was getting the Go2 to climb a real staircase under LLM control.
 
-### Quickstart
+The existing DimOS navigation stack treats stairs as obstacles — the costmap-based planner won't route through them. To get past this we added a **direct `move` skill** to `UnitreeSkillContainer`: the LLM can issue short velocity commands (`x`, `y`, `yaw`, `duration`) for local maneuvering when the global planner gives up. The skill watches odometry chunk by chunk, stops early if the robot stalls, and performs a small reverse recovery if blocked.
 
-```bash
-uv venv --python "3.12"
-source .venv/bin/activate
-uv pip install 'dimos[base,unitree]'
+We also updated the agent's system prompt with the right decision tree: try `relative_move` first; if no path is found, verify with `observe`, then call `move` with conservative velocity and duration. If `move` reports a stall, assess and reroute rather than keep pushing.
 
-# Replay a recorded quadruped session (no hardware needed)
-# NOTE: First run will show a black rerun window while ~75 MB downloads from LFS
-dimos --replay run unitree-go2
-```
+The result: the agent navigates normally on flat ground, then when it hits stairs it switches to direct velocity control, climbs them step by step, and resumes normal navigation at the top.
 
-```bash
-# Install with simulation support
-uv pip install 'dimos[base,unitree,sim]'
+---
 
-# Run quadruped in MuJoCo simulation
-dimos --simulation run unitree-go2
+## Achievements
 
-# Run humanoid in simulation
-dimos --simulation run unitree-g1-sim
-```
+- ✅ **Full voice loop on iPhone** running against a live Go2
+- ✅ **Typed agent message envelopes** so the phone speaks only AI replies and treats tool output as status
+- ✅ **Stair climbing** under LLM control via direct-move skill with stall recovery
+- ✅ **Real-time joystick teleop** as a manual fallback (Socket.IO Twist @ 15 Hz)
+- ✅ **iOS PWA** — Add-to-Home-Screen, safe-area layout, retry-hardened HTTP client
+- ✅ **macOS support** so the stack runs on Apple Silicon
 
-```bash
-# Control a real robot (Unitree quadruped over WebRTC)
-export ROBOT_IP=<YOUR_ROBOT_IP>
-dimos run unitree-go2
-```
+---
 
-# Featured Runfiles
+## Challenges
 
-| Run command | What it does |
-|-------------|-------------|
-| `dimos --replay run unitree-go2` | Quadruped navigation replay — SLAM, costmap, A* planning |
-| `dimos --replay --replay-db go2_bigoffice run unitree-go2-memory` | Quadruped temporal memory replay |
-| `dimos --simulation run unitree-go2-agentic` | Quadruped agentic + MCP server in simulation |
-| `dimos --simulation run unitree-g1-sim` | Humanoid in MuJoCo simulation |
-| `dimos --replay run drone-basic` | Drone video + telemetry replay |
-| `dimos --replay run drone-agentic` | Drone + LLM agent with flight skills (replay) |
-| `dimos run demo-camera` | Webcam demo — no hardware needed |
-| `dimos run keyboard-teleop-xarm7` | Keyboard teleop with mock xArm7 (requires `dimos[manipulation]` extra) |
-| `dimos --simulation run unitree-go2-agentic-ollama` | Quadruped agentic with local LLM (requires [Ollama](https://ollama.com) + `ollama serve`) |
+**Networking split-brain.** The Go2 communicates over its own WiFi. To send commands you have to be on the dog's network — but the agent needs internet to call the OpenAI API. Setting up routing so both could work simultaneously burned more time than expected.
 
-> Full blueprint docs: [docs/usage/blueprints.md](docs/usage/blueprints.md)
+**Crashes and memory pressure.** SLAM, WebRTC, LCM, a live LLM agent, and Whisper STT all running in the same process on development hardware. We regularly hit memory limits causing silent freezes mid-session with no clean error — debugging was often just figuring out whether the dog, the network, or the process had died.
 
-# Agent CLI and MCP
+**Connection timeouts.** The WebRTC link to the dog would occasionally stall without dropping cleanly — commands appeared to send but never arrived, and the dog would stop responding mid-navigation with no indication on the backend.
 
-The `dimos` CLI manages the full lifecycle — run blueprints, inspect state, interact with agents, and call skills via MCP.
+---
+
+## Quick start
+
+### Run the webapp (no robot needed)
 
 ```bash
-dimos run unitree-go2-agentic --daemon   # Start in background
-dimos status                              # Check what's running
-dimos log -f                              # Follow logs
-dimos agent-send "explore the room"       # Send agent a command
-dimos mcp list-tools                      # List available MCP skills
-dimos mcp call relative_move --arg forward=0.5  # Call a skill directly
-dimos stop                                # Shut down
+cd webapp
+npm install
+npm run dev      # http://localhost:3000
 ```
 
-> Full CLI reference: [docs/usage/cli.md](docs/usage/cli.md)
+With no `.env.local`, Goldie runs against a built-in mock — the full UI works with no DimOS process running. For real OpenAI TTS:
 
-
-# Usage
-
-## Use DimOS as a Library
-
-See below a simple robot connection module that sends streams of continuous `cmd_vel` to the robot and receives `color_image` to a simple `Listener` module. DimOS Modules are subsystems on a robot that communicate with other modules using standardized messages.
-
-```py skip
-import threading, time, numpy as np
-from dimos.core.coordination.blueprints import autoconnect
-from dimos.core.core import rpc
-from dimos.core.module import Module
-from dimos.core.stream import In, Out
-from dimos.msgs.geometry_msgs import Twist
-from dimos.msgs.sensor_msgs import Image, ImageFormat
-
-class RobotConnection(Module):
-    cmd_vel: In[Twist]
-    color_image: Out[Image]
-
-    @rpc
-    def start(self):
-        threading.Thread(target=self._image_loop, daemon=True).start()
-
-    def _image_loop(self):
-        while True:
-            img = Image.from_numpy(
-                np.zeros((120, 160, 3), np.uint8),
-                format=ImageFormat.RGB,
-                frame_id="camera_optical",
-            )
-            self.color_image.publish(img)
-            time.sleep(0.2)
-
-class Listener(Module):
-    color_image: In[Image]
-
-    @rpc
-    def start(self):
-        self.color_image.subscribe(lambda img: print(f"image {img.width}x{img.height}"))
-
-if __name__ == "__main__":
-    autoconnect(
-        RobotConnection.blueprint(),
-        Listener.blueprint(),
-    ).build().loop()
+```bash
+OPENAI_API_KEY=sk-...
+NEXT_PUBLIC_DIMOS_API=https://your-dimos-host
+NEXT_PUBLIC_DIMOS_VIS=https://your-vis-host     # joystick
 ```
 
-## Blueprints
+### Run against a real Go2
 
-Blueprints are instructions for how to construct and wire modules. We compose them with
-`autoconnect(...)`, which connects streams by `(name, type)` and returns a `Blueprint`.
+```bash
+uv venv --python 3.12 && source .venv/bin/activate
+uv pip install -e '.[base,unitree]'
 
-Blueprints can be composed, remapped, and have transports overridden if `autoconnect()` fails due to conflicting variable names or `In[]` and `Out[]` message types.
-
-A blueprint example that connects the image stream from a robot to an MCP-backed LLM agent for reasoning and action execution.
-```py skip
-from dimos.core.coordination.blueprints import autoconnect
-from dimos.core.transport import LCMTransport
-from dimos.msgs.sensor_msgs import Image
-from dimos.robot.unitree.go2.connection import go2_connection
-from dimos.agents.mcp.mcp_client import McpClient
-from dimos.agents.mcp.mcp_server import McpServer
-
-blueprint = autoconnect(
-    go2_connection(),
-    McpServer.blueprint(),
-    McpClient.blueprint(),
-).transports({("color_image", Image): LCMTransport("/color_image", Image)})
-
-# Run the blueprint
-if __name__ == "__main__":
-    blueprint.build().loop()
+uv run dimos --viewer none --robot-ip 192.168.12.1 run unitree-go2-agentic --disable security-module
 ```
 
-## Library API
+Wait for the backend to come online:
 
-- [Modules](docs/usage/modules.md)
-- [LCM](docs/usage/lcm.md)
-- [Blueprints](docs/usage/blueprints.md)
-- [Transports](docs/usage/transports/index.md) — LCM, SHM, DDS, ROS 2
-- [Data Streams](docs/usage/data_streams/README.md)
-- [Configuration](docs/usage/configuration.md)
-- [Visualization](docs/usage/visualization.md)
-
-## Demos
-
-<img src="assets/readme/dimos_demo.gif" alt="DimOS Demo" width="100%">
-
-# Development
-
-## Develop on DimOS
-
-```sh skip
-export GIT_LFS_SKIP_SMUDGE=1
-git clone https://github.com/dimensionalOS/dimos.git
-cd dimos
-
-# Run the default test suite (uv run syncs deps on demand; --all-groups
-# only needed for self-hosted tests / mypy — see docs/development/testing.md)
-uv run pytest --numprocesses=auto dimos
+```bash
+uv run dimos status
 ```
 
+Then set `NEXT_PUBLIC_DIMOS_API=http://localhost:5555` in `webapp/.env.local` and start the webapp.
 
-## Multi Language Support
+---
 
-Python is our glue and prototyping language, but we support many languages via LCM interop.
+## Tech stack
 
-Check our language interop examples:
-- [C++](examples/language-interop/cpp/)
-- [Lua](examples/language-interop/lua/)
-- [TypeScript](examples/language-interop/ts/)
+**Webapp:** Next.js 16 · React 19 · TypeScript · Tailwind v4 · Socket.IO · OpenAI `gpt-4o-mini-tts` · Vitest
+
+**DimOS stack:** Python 3.12 · FastAPI · ReactiveX · LCM · LangChain + MCP · Whisper STT · Unitree WebRTC SDK
+
+---
+
+## Credits
+
+Built at the MuShanghai DimOS Hackathon 2026 by Team Perception. Built on top of [DimOS](https://github.com/dimensionalOS/dimos).
+
+> [!NOTE]
+> The upstream DimOS README has been replaced by this submission doc. For the original project docs see [dimensionalOS/dimos](https://github.com/dimensionalOS/dimos).
