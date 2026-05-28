@@ -10,7 +10,7 @@
 
 It's an iPhone-tuned PWA wired to an LLM-driven agent stack built on top of [DimOS](https://github.com/dimensionalOS/dimos), with real-time teleop fallback and a voice loop tuned end-to-end for accessibility.
 
-### [Demo Video →](https://canva.link/kmcp30jdfr8ict0) · [Presentation →](https://canva.link/perception-goldie)
+### [Demo Video →](https://canva.link/74vvhbiw7jwr4as) · [Presentation →](https://canva.link/perception-goldie)
 
 </div>
 
